@@ -1,0 +1,1460 @@
+---
+title: "Estatistica_Espacial"
+author: "Mayara Yonemura"
+date: "29/01/2022"
+output: html_document
+---
+
+```{r setwd, echo=FALSE, include=FALSE}
+setwd("C:/Users/mayar/Desktop/Personnal/FGV/Estatistica_Espacial/Projeto_conclusao")
+```
+
+
+# **Projeto de Conclusão da Disciplina Estatística Espacial**
+<br>
+Grupo : 
+Marina Ferreira - A57186730
+Mayara Yonemura - A58337141
+Renan Moisés Bonfá - A58342926
+Renato Hirata - A
+
+
+<br><br>
+# **Briefing**
+##### Os datasets, disponibilizados pela disciplina de MBA Estatística Espacial, possuem:
+  - Base Filadelfia: Contem informações sobre violações ocorridas na Filadélfia - EUA;
+  - Base Municipios Mensal: contem informações sobre os casos de lesões corporais dolosas e roubo de rua de um determinado periodo para respectivos municipios;
+  - Base Evolução Populacional Mensal: Contem informações sobre a população estimada para respectivos municipios, no ano de 2019;
+  
+
+<br><br>  
+## *Descrições dos Datasets*
+  -- Base Filadelfia
+```{r loadimage, echo=FALSE}
+library(imager)
+load.image("C:/Users/mayar/Desktop/Personnal/FGV/Estatistica_Espacial/Projeto_conclusao/Filadelpfia_dataset_description.png") %>% plot
+```
+
+<br>
+-- Base Municipios Mensal
+```{r loadimage, echo=FALSE}
+load.image("C:/Users/mayar/Desktop/Personnal/FGV/Estatistica_Espacial/Projeto_conclusao/LesoesRoubos_dataset_description.png") %>% plot
+```
+<br>
+  -- Base Evolução Populacional Mensal
+```{r loadimage, echo=FALSE}
+load.image("C:/Users/mayar/Desktop/Personnal/FGV/Estatistica_Espacial/Projeto_conclusao/EvolucaoPop_dataset_description.png") %>% plot
+```
+
+
+<br><br>
+## *Carregando as bibliotecas*
+```{r bibliotecas, warning=FALSE, message=FALSE, include=FALSE}
+library(knitr)
+library(rmarkdown)
+library(htmltools)
+
+library(sf)
+library(spatstat)
+library(tidyverse)
+
+library(ggplot2)
+library(patchwork)
+library(cowplot)
+library(grid)
+library(gridExtra)
+library(ggmap)
+library(rmapshaper)
+##library(tmap)
+##library(spdep)
+```
+
+
+<br><br>
+# **Base Philadelphia**
+<br>
+# **Questão 1**
+*Escolha três das violações cometidas. Inicialmente a empresa gostaria de avaliar visualmente o comportamento das diferentes violações cometidas (violation_description). Discuta possíveis diferenças observadas nestes cenários.*
+
+
+
+```{r importando base philadelphia, include=FALSE}
+### Importando o dataset: contem os dados das violações ocorridas na Philadelphia - EUA
+
+#### Visualização dos 5 primeiros registros do Dataset
+tbphila <- read_csv2('Base_Filadelfia.csv')
+head(tbphila)
+
+
+#### Como a base está com medidas latitude e longitude, o padrão de pontos é NÃO-PROJETADO. Para utilizar as técnicas de coordenadas, é necessário que o Shape e a base estejam no mesmo padrão referencial de coordenadas (UTM ou WGS84).
+```
+
+```{r dimensoes, include=FALSE}
+#### Dimensões do Dataset - quantidade de linhas e de colunas, respectivamente:
+dim(tbphila)
+```
+
+
+```{r dtypes, include=FALSE}
+#### Datatypes do Dataset:
+str(tbphila)
+```
+
+
+``` {r dados nulos, echo=FALSE, include=FALSE}
+#### Removendo os dados nulos para plot do Shape
+colSums(is.na(tbphila)) 
+tbphila <- na.omit(tbphila)
+colSums(is.na(tbphila)) 
+```
+
+
+```{r shape, include=FALSE}
+#### Importando o Shape
+shapephila = read_sf("neighborhoods_Azavea.shp")
+class(shapephila)
+shapephila
+
+#### Trata-se de um Shape Poligono, bidimensional, no padrão de coordenadas EPSG (NAD83).
+```
+
+
+```{r CRS, include=FALSE}
+#### Analisando o sistema de coordenadas do Shape
+st_crs(shapephila)   ### EPSG:2272 = WGS84
+
+### Transforma em coordenadas projetadas no mapa global
+philatransform = st_transform(shapephila, crs = "WGS84")
+
+#### O Shape se encontra no sistema de coordenadas EPSG:2272 - Foi convertido para o sistema WGS854.
+```
+
+<br>
+#### Plot do Shape Philadelphia
+```{r plotando reshape, echo=FALSE}
+#Plotando o shape
+ggplot(data = philatransform) +
+  geom_sf(fill = "White")
+```
+
+
+<br>
+#### Plot do mapa com os pontos da base de violações na Philadelphia:
+<br>
+```{r plotando shape, message=FALSE, warning=FALSE, echo=FALSE}
+
+#Mapa com os pontos - ggplot
+
+ggplot(data = philatransform) + 
+  geom_sf(fill = "White") +
+  geom_point(data = tbphila,
+             aes(x = lng,
+                 y = lat),
+             colour = 'Dark Red',
+             size = 1.75) +
+  ggtitle("Violacoes registradas na Filadelfia") + 
+  theme_light()
+
+#Mapa com os pontos - ggmap
+
+qmplot(x = lng,
+       y = lat,
+       data = tbphila,
+       colour = I('blue'),
+       size = I(1.5),
+       darken = 0.03) 
+
+```
+
+<br><br>
+
+#### Seleção para Violações para Plots
+Para selecionar as Violações, elencamos a contagem de cada violação; como são apenas 5: escolhemos a com maior incidência, com menor incidência e a mediana.
+```{r violationcode, echo=FALSE}
+tbphila %>% count(violation_code, violation_description)
+```
+
+<br><br>
+#### Plotando os mapas com as Violações escolhidas: "Recpt Not Littr Free", "Unlicensd Cstr Dumps" e "No Permit Fixture"
+<br>
+```{r validacao phila, echo=FALSE}
+
+## Base Collections
+tbrecept <- filter(tbphila, violation_code == "107142")
+plotrecept <- ggplot(data = philatransform) + 
+  geom_sf(fill = "White") +
+  geom_point(data = tbrecept,
+             aes(x = lng,
+                 y = lat),
+             colour = 'Dark Red',
+             size = 1.75) +
+  ggtitle("Violacoes - Recpt Not Littr Free") + 
+  theme_light()
+
+## Base Recpt
+tbunlicensed <- filter(tbphila, violation_code == "116102")
+plotunlicensed <- ggplot(data = philatransform) + 
+  geom_sf(fill = "White") +
+  geom_point(data = tbunlicensed,
+             aes(x = lng,
+                 y = lat),
+             colour = 'Dark Blue',
+             size = 1.75) +
+  ggtitle("Violacoes - Unlicensd Cstr Dumps") + 
+  theme_light()
+
+## Base Unlicnsd
+tbfixture <- filter(tbphila, violation_code == "106111K")
+plotfixture <- ggplot(data = philatransform) + 
+  geom_sf(fill = "White") +
+  geom_point(data = tbfixture,
+             aes(x = lng,
+                 y = lat),
+             colour = 'Dark Green',
+             size = 1.75) +
+  ggtitle("Violacoes - No Permit Fixture") + 
+  theme_light()
+
+plotrecept
+plotunlicensed
+plotfixture
+
+plot_grid(
+  plotrecept, 
+  plotunlicensed, 
+  plotfixture,
+  labels="Plot das violacoes escolhidas", 
+  ncol = 3, 
+  nrow = 1)
+
+```
+
+<br><br>
+### **Insights**
+*Pode-se notar que a concentração de pontos está localizada, no caso das 3 violações selecionadas, na parte central de Filadélfia e na região Sudoeste da mesma. No caso da violação de Receipt, também existe uma alta concentração de pontos na região mais ao norte (40.05º latitude), bem como na região Sul (39.95º latitude). No demais, as 3 violações apresentam distribuições de pontos relativamente semelhantes.*
+
+
+
+<br><br>
+# **Questão 2 - Análise Exploratória**
+*Investigar os efeitos de 1ª e 2ª ordem das localizações das violações cometidas. Interprete todos os resultados apresentados. Discutam as possíveis diferenças observadas entre os edeitos estimados dos 3 cenários avliados, isto é, o comportamento da intensidade das violações parece ocorrer de formar similar para tosos os seus tipos para a cidade da Philadelphia ou padrões tendem a ser diferentes?*
+
+<br>
+## *Efeitos de 1ª Ordem*
+<br>
+```{r primeiraordem transformshape, include=FALSE}
+#Transformando o CRS do shape
+shapeH_32718 = st_transform(shape_simp, 
+                            crs = 32718)
+
+```
+
+<br>
+```{r primeiraordem  owin,  include=FALSE}
+#Criando um objeto owin (observation window)
+shapeHO <- as.owin(shapeH_32718)
+
+#### O Shape se encontra no sistema de coordenadas EPSG:4326 - Foi convertido para o sistema WGS854.
+```
+
+
+<br>
+```{r primeiraordem shape, include=FALSE}
+#CRS do shapefile 
+base_4326 = st_as_sf(x = tbphila,
+                     coords = c("lng","lat"),
+                     crs = 4326)
+
+base_32718 = st_transform(x = base_4326,
+                          crs = 32718)
+```
+
+
+<br>
+```{r primeiraordem extracao bases, include=FALSE}
+### Extraindo bases transformadas por Violação
+## Base Recept
+base_recept_32718 <- filter(base_32718, violation_code == "107142")
+
+## Base Unlicensed
+base_unlicensed_32718 <- filter(base_32718, violation_code == "116102")
+
+## Base Fixture
+base_fixture_32718 <- filter(base_32718, violation_code == "106111K")
+```
+
+<br>
+
+```{r primeiraordem coords, include=FALSE}
+### Extraindo as coordenadas de cada área
+
+#Extraindo as coordenadas de cada base
+coordenadas_recept = st_coordinates(x = base_recept_32718)
+coordenadas_unlicensed = st_coordinates(x = base_unlicensed_32718)
+coordenadas_fixture = st_coordinates(x = base_fixture_32718)
+coordenadas_filadelfia = st_coordinates(x = base_32718)
+
+#Visualiando o objeto coordenadas
+head(coordenadas_recept)
+head(coordenadas_unlicensed)
+head(coordenadas_fixture)
+head(coordenadas_filadelfia)
+```
+
+<br>
+### Criando o padrão de pontos a ser plotado
+*Plots das violações "Recpt Not Littr Free", "Unlicensd Cstr Dumps" e "No Permit Fixture", respectivamente para todas as análises
+```{r primeiraordem padraopontos, message=FALSE, echo=FALSE}
+#Criando o padrao de pontos a ser plotado
+Receptppp = ppp(x = coordenadas_recept[,1],
+                 y = coordenadas_recept[,2],
+                 window = shapeHO)
+
+Unlicensedppp = ppp(x = coordenadas_unlicensed[,1],
+                y = coordenadas_unlicensed[,2],
+                window = shapeHO)
+
+Fixtureppp = ppp(x = coordenadas_fixture[,1],
+                    y = coordenadas_fixture[,2],
+                    window = shapeHO)
+
+Filadelfiappp = ppp(x = coordenadas_filadelfia[,1],
+                 y = coordenadas_filadelfia[,2],
+                 window = shapeHO)
+```
+
+<br>
+### Estimando o Raio 
+```{r primeiraordem raio, echo=FALSE}
+raio.est_recept = bw.diggle(Receptppp)
+raio.est_recept
+
+raio.est_unlicensed = bw.diggle(Unlicensedppp)
+raio.est_unlicensed
+
+raio.est_fixture = bw.diggle(Fixtureppp)
+raio.est_fixture
+
+raio.est_filadelfia = bw.diggle(Filadelfiappp)
+raio.est_filadelfia
+```
+
+
+<br>
+### Estimando a intensidade com Kernel Guassiano
+```{r primeiraordem kernelguaussiano, echo=FALSE}
+#Checando a unidade de medida
+st_crs(shapeH_32718)
+
+#Estimando a intensidade com kernel Gaussiano
+Recept_de.g = density.ppp(x = Receptppp, 
+                           sigma = raio.est_recept, 
+                           kernel ="gaussian")
+
+Unlicensed_de.g = density.ppp(x = Unlicensedppp, 
+                          sigma = raio.est_unlicensed, 
+                          kernel ="gaussian")
+
+Fixture_de.g = density.ppp(x = Fixtureppp, 
+                          sigma = raio.est_fixture, 
+                          kernel ="gaussian")
+```
+
+<br>
+
+###Plotando os dados e as funcoes intensidades estimadas pela função kernel Normal
+```{r primeiraordem kernelnormal, exho=FALSE} 
+
+par(mfrow=c(2,3))
+
+par(mar=c(2.5,2.5,1.5,.5))
+
+plot(Receptppp, 
+     pch=21, 
+     cex=0.5, 
+     bg="Dark Blue", main="Ocorrências de Recept", 
+     cex.main=0.5)
+
+plot(Unlicensedppp, 
+     pch=21, 
+     cex=0.5, 
+     bg="Dark Red", main="Ocorrências de Unlicensed", 
+     cex.main=0.5)
+
+plot(Fixtureppp, 
+     pch=21, 
+     cex=0.5, 
+     bg="Dark green", main="Ocorrências de Fixture", 
+     cex.main=0.5)
+
+plot(Recept_de.g, 
+     main="Função intensidade de Recept", 
+     cex.main=0.5)
+
+plot(Unlicensed_de.g, 
+     main="Função intensidade de Unlicensed", 
+     cex.main=0.5)
+
+plot(Fixture_de.g, 
+     main="Função intensidade de Fixture", 
+     cex.main=0.5)
+
+par(mfrow=c(1,1))
+```
+
+<br>
+### **Insights**
+
+*Ao se analisar o efeito de 1a ordem de cada tipo de violação analisada, em que a intensidade dos pontos espaciais, resultantes das densidades desses pontos, são levados em consideração. Ao se analisar os gráficos de intensidade obtidos, nota-se que os 3 tipos de violação ("Recept", Unlicensed"e "Fixture") não podem ser denominados como processos pontuais estacionários, uma vez que suas propriedades dependem de sua localização espacial, isso pode ser notado através da não homogenidade das intensidades de seus gráficos espaciais ao longo de todo seu território. De modo geral, temos um comportamento, relativamente, semelhante para o efeito de 1ª ordem de cada tipo de ocorrência, em que as regiões de alta intensidade/densidade de pontos espaciais estão concentrados na região Centro-Sudoeste da Filadélfia.*
+*Entretanto, nota-se que a ocorrência "Fixture" possui uma maior intensidade na região mencionada anteriormente, quando comparado com as ocorrências "Recept" e "Unlicensed".*
+
+
+## *Efeitos de 2ª Ordem*
+<br><br>
+### Plotando as funcoes G de cada ocorrência
+*Plots das violações "Recpt Not Littr Free", "Unlicensd Cstr Dumps" e "No Permit Fixture", respectivamente para todas as análises
+```{r primeiraordem funcoesg, echo=FALSE}
+### Estimando as funções G de cada ocorrência
+Recept.G = Gest(Receptppp)
+Unlicensed.G = Gest(Unlicensedppp)
+Fixture.G = Gest(Fixtureppp)
+
+
+par(mfrow = c(2,2))
+
+par(mar=c(4,2.5,1.5,.5))
+
+plot(Recept.G, 
+     main="Funcao G de Recept", 
+     xlab = "metro")
+
+plot(Unlicensed.G, 
+     main="Funcao G de Unlicensed", 
+     xlab = "metro")
+
+plot(Fixture.G, 
+     main="Funcao G de Fixture", 
+     xlab = "metro")
+par(mfrow = c(1,1))
+```
+
+<br><br>
+### **Insights**
+*Ao se analisar o efeito de 2a ordem de cada tipo de violação analisada, em que esse efeito fornece informações sobre a interação de eventos em pequena escala. Ao se analisar a função G de cada tipo de ocorrência, nota-se que os pontos das 3 ocorrências indicam uma tendência de agrupamento de pontos, uma vez que a curva G estimada se encontra acima da curva de aleatoriedade de pontos e apresenta um comportamento de crescimento contínuo ao longo do eixo X.*
+*Entretanto, para garantir que os pontos apresentem realmente uma tendência de agrupamento e sair do campo da intuição, deve-se realizar o teste de CSR, o qual é apresentado a seguir.*
+
+<br><br>
+### Realizando o teste de Clark-Evans para verificar agregacao espacial
+```{r primeiraordem clarkevans, echo=FALSE}
+Recept_clarkevans <- clarkevans.test(X = Receptppp, 
+                alternative = "clustered")
+Recept_clarkevans
+
+
+Unlicensed_clarkevans <- clarkevans.test(X = Unlicensedppp, 
+                                     alternative = "clustered")
+Unlicensed_clarkevans
+
+
+Fixture_clarkevans <- clarkevans.test(X = Fixtureppp, 
+                                     alternative = "clustered")
+Fixture_clarkevans
+
+```
+
+<br>
+### **Insights**
+*Ao se realizar o teste de Clar-Evans em conjunto com a adoção da premissa de que o nível de significância do teste seja de 5%, nota-se que para as 3 ocorrências a hipótese nula é rejeitada, uma vez que o p-valor do teste de Clark-Evans para cada tipo de ocorrência é menor que 5%. Logo, pode-se assumir que existe uma relação de agrupamento entre os pontos de cada ocorrência.Logo, o efeito de 2a ordem para cada tipo de ocorrência resulta no apontamento de agrupamento de pontos.*
+*Por fim, pode-se concluir que nos 3 tipos de ocorrência selecionados, o comportamentoda densidade de pontos ao longo da superfície geográfica e as interações entre esses pontos com seus respectivos pontos vizinhos apresentam um certo padrão, uma vez que os pontos nas 3 ocorrências selecionada encontram-se com elevada intensidade na região Centro-Sudoeste da Filadélfia, não apresentando características de processos estacionários ou homogêneos. Além disso, nas 3 ocorrências foram identificados padrões de agrupamento de pontos, os quais são evidenciados pela curva estimada da função G e pelo teste de Clark-Evans.*
+
+
+<br><br>
+# **Base Rio de Janeiro**
+<br>
+# **Questão 1**
+*Crie uma visualização apropriada para a taxa de lesão corporal dolosa por 100.000 habitantes em 2019 e para a taxa de roubo de rua por 100.000 habitantes no ano de 2019 considerando os municípios do Estado do Rio de Janeiro. Discuta a superfície de taxas estimadas.*
+
+```{r importando rj, include=FALSE}
+### Importando o dataset: contem os dados dos municípios do Rio de Janeiro com a quantidade de incidentes ocorridos para Lesão Corporatal Dolosa (LCD) e Roubos de Rua (RR); O outro dataset, contem os dados de evolução popucional por Municípios por vários anos.
+
+#### Visualização dos 5 primeiros registros de cada Dataset:
+####### Dataset Incidentes no Rio de Janeiro
+
+#Importando a base
+Base_municipio_mensal = read_csv2(file = "BaseMunicipioMensal.csv")
+head(Base_municipio_mensal)
+```
+
+```{r importando evolucaopop, include=FALSE}
+###### Dataset de Evolução Populacional por Municípios
+
+#Importando população ev mensal municipio
+Pop_ev_mensal_mun = read_csv2(file = "PopulacaoEvolucaoMensalMunic.csv")
+head(Pop_ev_mensal_mun)
+```
+
+
+```{r uniao datasets, include=FALSE}
+
+### União dos Datasets
+#Filtrando 2019
+Base_municipio_mensal = filter(Base_municipio_mensal, ano == "2019")
+
+#Acrescentando a variavel no shape
+base_join = left_join(x = Base_municipio_mensal, 
+                      y = Pop_ev_mensal_mun, 
+                      by = c("fmun_cod" = "cod_munic"))
+head(base_join)
+```
+
+
+```{r ajuste rj habitantes, include=FALSE}
+### Ajustando o Dataset para popualçao por 100 mil habitantes
+
+#Taxa de lesão corporal dolosa por 100.000 habitantes em 2019 (TLCD)
+#Taxa de roubo de rua por 100.000 habitantes no ano de 2019 (TRR)
+base_join$TLCD <-  base_join$lesao_corp_dolosa/base_join$pop_munic*100000
+
+base_join$TRR <- base_join$roubo_rua/base_join$pop_munic*100000
+
+#Transformando a variavel fmun_cod em character
+base_join$fmun_cod <- as.character(base_join$fmun_cod)
+```
+
+<br><br>
+```{r importando shape rj, include=FALSE}
+### Importando shape
+Rio = read_sf("33MUE250GC_SIR.shp")
+class(Rio)
+Rio
+```
+
+<br>
+
+
+```{r simplificando shaperj, include=FALSE}
+### Simplificando o numero de pontos no shape
+Rio_simp = ms_simplify(Rio,  
+                          keep_shapes = TRUE)
+```
+
+<br>
+### Plot do Shape Rio de Janeiro
+```{r plot rj, echo=FALSE}
+ggplot(Rio_simp) +
+  geom_sf(fill = "White")
+```
+
+<br> 
+
+```{r rj shape, include=FALSE}
+#### Acrescentando a variavel no shape
+Rio_final = left_join(Rio_simp, base_join, by = c("CD_GEOCMU" = "fmun_cod"))
+head(Rio_final)
+```
+
+<br>
+
+#1) Mapa coroplético
+
+### Mapas - GGPLOT
+```{r mapas ggplot, echo=FALSE}
+# Mapa- TLCD
+  map_TLCD_ggplot <-   ggplot(data = Rio_final) +
+  geom_sf(aes(fill = TLCD)) +
+  scale_fill_gradient(name = "TLCD", 
+                      low = "White", 
+                      high = "Red") +
+  theme_light() +
+  theme(legend.title = element_text(size = 16),
+        legend.text = element_text(size = 10,
+                                   colour = "Red"))
+map_TLCD_ggplot
+# Mapa- TRR
+map_TRR_ggplot <- ggplot(data = Rio_final) +
+  geom_sf(aes(fill = TRR)) +
+  scale_fill_gradient(name = "TRR", 
+                      low = "White", 
+                      high = "Red") +
+  theme_light() +
+  theme(legend.title = element_text(size = 16),
+        legend.text = element_text(size = 10,
+                                   colour = "Red"))
+map_TRR_ggplot
+
+#Plotando os dois mapas em uma mesma figura
+grid.arrange(map_TLCD_ggplot,
+             map_TRR_ggplot,
+             ncol = 1,
+             nrow = 2)
+```
+
+<br>
+### Mapas - TMAP
+```{r mapstmap, echo=FALSE}
+#Colocando todos os graficos em uma mesma escala
+  tm_shape(shp = Rio_final) + 
+    tm_fill(col = c("TLCD","TRR"),
+            title = c("TAXA POR 100 MIL HABITANTES"),
+            palette = "Blues") +
+    tm_facets(nrow = 1,
+              free.scales = FALSE) +
+    tm_borders() +
+    tm_layout(panel.labels = c("TLCD","TRR"))
+```
+
+
+<br>
+### **INSIGHTS**
+*Podemos observar que a Taxa de lesão corporal dolosa (TLCD) compararada com a Taxa de roubo de rua (TRR) possui maior incidencia no estado do RJ-Dados da base de 2019 por 100 mil habitantes.*
+
+*TLCD possui maior dispersão ao longo do estado ao passo que que TRR está mais concentrado na região da capital e baixada fluminense*
+
+<br><br>
+# **Questão 2**
+*Verifique se existe dependência espacial para as duas taxas de interesse. Avalie diferentes critérios de vizinhança e diferentes pesos. Conclua usando um nível de significância de 5%.*
+
+<br><br>
+Matriz de proximidade espacial: Duas principais abordagem
+• Contiguidade
+• Distância
+
+<br>
+Contiguidade binária:
+• Critério rook (borda comum),
+• Critério bishop (vértice comum),
+• Critério queen (borda ou vértice comum).
+
+<br>
+
+
+### Critério de Contiguidade: 
+Definição da matriz de vizinhança (W): contiguidade (bishop, rook e queen ) ou distância (k-vizinhos mais próximos). 
+• W define quem é vizinho de quem e a intensidade (peso) dessa relação
+<br><br>
+
+### Criando a matriz de vizinhanca W baseda no criterio de contiguidade queen
+```{r matrixvizinhanca, echo=FALSE}
+W.queen = poly2nb(pl = Rio_final, 
+                    row.names = Rio_final$NM_MUNICIP, 
+                    queen = TRUE)
+  
+W.rook = poly2nb(pl = Rio_final, 
+                    row.names = Rio_final$NM_MUNICIP, 
+                    queen = FALSE)
+  
+summary(W.rook)
+```
+<br>
+### Definição dos pesos de W
+  - Queen
+```{r pesos queen, echo=FALSE}
+## Lista de vizinhanca espacial com pesos
+  recWQW <- nb2listw(neighbours = W.queen, 
+                     style="W") #outras opcoes: B, C, S e U
+  
+  recWQB <- nb2listw(neighbours = W.queen, 
+                     style="B") #outras opcoes: B, C, S e U
+```
+
+<br>
+
+  - Rook
+```{r pesos rook, echo=FALSE}
+  recWRW <- nb2listw(neighbours = W.rook, 
+                   style="W") #outras opcoes: B, C, S e U
+  
+  recWRB <- nb2listw(neighbours = W.rook, 
+                   style="B") #outras opcoes: B, C, S e U
+
+```
+
+<br>
+Indicadores de autocorrelação global:
+  • Índice I global de Moran,
+  • C de Gery,
+  • Getis e Ord’s G(d).
+Indicadores de autocorrelação local:
+  • Índice I local de Moran,
+
+<br><br>
+### **Indicadores de autocorrelação global**
+```{r corrglobal, echo=FALSE}
+#Calculando o indice de moran considerando uma estrutura de vizinhanca queen com padronizacao pelas linhas 
+  
+  #Para TLCD - Taxa de lesão corporal dolosa por 100.000 habitantes em 2019 
+  moran.test(x = Rio_final$TLCD,
+             listw = recWQW)
+  
+  #Para TRR - Taxa de roubo de rua por 100.000 habitantes no ano de 2019 
+  moran.test(x = Rio_final$TRR,
+             listw = recWQW)
+```
+
+
+<br>
+### Calculando o indice de moran considerando uma estrutura de vizinhanca queen com pesos iguais
+```{r moranqueen, echo=FALSE}
+#Para TLCD - Taxa de lesão corporal dolosa por 100.000 habitantes em 2019 
+moran.test(x = Rio_final$TLCD,
+           listw = recWQB)
+#Para TRR - Taxa de roubo de rua por 100.000 habitantes no ano de 2019 
+moran.test(x = Rio_final$TRR,
+           listw = recWQB)
+```
+
+<br>
+
+### Calculando o indice de moran considerando uma estrutura de vizinhanca Rook com padronizacao pelas linhas 
+```{r moranrook, echo=FALSE}
+#Para TLCD - Taxa de lesão corporal dolosa por 100.000 habitantes em 2019 
+moran.test(x = Rio_final$TLCD,
+           listw = recWRW)
+
+#Para TRR - Taxa de roubo de rua por 100.000 habitantes no ano de 2019 
+moran.test(x = Rio_final$TRR,
+           listw = recWRW)
+```
+
+
+<br>
+
+### Calculando o indice de moran considerando uma estrutura de vizinhanca Rook com pesos iguais
+```{r moranrook iguais, echo=FALSE}
+#Para TLCD - Taxa de lesão corporal dolosa por 100.000 habitantes em 2019 
+moran.test(x = Rio_final$TLCD,
+           listw = recWRB)
+#Para TRR - Taxa de roubo de rua por 100.000 habitantes no ano de 2019 
+moran.test(x = Rio_final$TRR,
+           listw = recWRB)
+```
+
+<br>
+### **Indicadores de autocorrelação local**
+Calculando o I local de Moran 
+```{r moranlocal, echo=FALSE}
+#Para TLCD
+moranlocREC_TLCD = localmoran(x = Rio_final$TLCD,
+                               listw = recWQW, 
+                               na.action=na.exclude,
+                               zero.policy=TRUE)
+
+moranlocREC_TLCD
+
+#Para TREE
+moranlocREC_TRR = localmoran(x = Rio_final$TRR,
+                              listw = recWQW, 
+                              na.action=na.exclude,
+                              zero.policy=TRUE)
+
+
+moranlocREC_TRR
+```
+
+
+
+<br>
+### **INSIGHTS**
+*Utilizando tanto o critério de contiguidade Rook como o Queen,variando também os pesos de W, entre "W" E "R", observa-se que os Indicadores de autocorrelação global(Indices de Moran) para TLCD e TRR são valores muito próximos de zero, e por isso requerem a análise de inferência. Como ambos os p-value para TLCD E TRR são também muito próximos de zero, rejeita-se a Ho. Ou seja, existe dependencia espacial, porém fraca.*
+
+
+
+
+
+
+# **Códigos**
+```{r importando base philadelphia, eval=FALSE}
+tbphila <- read_csv2('Base_Filadelfia.csv')
+head(tbphila)
+```
+<br>
+#### Como a base está com medidas latitude e longitude, o padrão de pontos é NÃO-PROJETADO. Para utilizar as técnicas de coordenadas, é necessário que o Shape e a base estejam no mesmo padrão referencial de coordenadas (UTM ou WGS84).
+
+<br><br>
+#### Dimensões do Dataset - quantidade de linhas e de colunas, respectivamente:
+```{r dimensoes, eval=FALSE}
+dim(tbphila)
+```
+<br>
+#### Datatypes do Dataset:
+```{r dtypes, eval=FALSE}
+str(tbphila)
+```
+
+<br>
+#### Removendo os dados nulos para plot do Shape
+``` {r dados nulos, echo=FALSE, eval=FALSE}
+colSums(is.na(tbphila)) 
+tbphila <- na.omit(tbphila)
+colSums(is.na(tbphila)) 
+```
+
+<br><br>
+#### Importando o Shape 
+```{r shape, eval=FALSE}
+shapephila = read_sf("neighborhoods_Azavea.shp")
+class(shapephila)
+shapephila
+```
+
+#### Trata-se de um Shape Poligono, bidimensional, no padrão de coordenadas EPSG (NAD83).
+
+<br>
+#### Analisando o sistema de coordenadas do Shape
+```{r CRS, eval=FALSE}
+st_crs(shapephila)   ### EPSG:2272 = WGS84
+
+### Transforma em coordenadas projetadas no mapa global
+philatransform = st_transform(shapephila, crs = "WGS84")
+```
+
+#### O Shape se encontra no sistema de coordenadas EPSG:2272 - Foi convertido para o sistema WGS854.
+
+<br><br>
+#### Plot do Shape Philadelphia
+```{r plotando reshape, eval=FALSE}
+#Plotando o shape
+ggplot(data = philatransform) +
+  geom_sf(fill = "White")
+```
+
+
+<br>
+#### Plot do mapa com os pontos da base de violações na Philadelphia:
+<br>
+```{r plotando shape, message=FALSE, warning=FALSE, eval=FALSE}
+
+#Mapa com os pontos - ggplot
+
+ggplot(data = philatransform) + 
+  geom_sf(fill = "White") +
+  geom_point(data = tbphila,
+             aes(x = lng,
+                 y = lat),
+             colour = 'Dark Red',
+             size = 1.75) +
+  ggtitle("Violacoes registradas na Filadelfia") + 
+  theme_light()
+
+#Mapa com os pontos - ggmap
+
+qmplot(x = lng,
+       y = lat,
+       data = tbphila,
+       colour = I('blue'),
+       size = I(1.5),
+       darken = 0.03) 
+
+```
+
+<br><br>
+#### Seleção para Violações para Plots
+<br>
+```{r violationcode, eval=FALSE}
+tbphila %>% count(violation_code, violation_description)
+```
+#### Para selecionar as Violações, elencamos a contagem de cada violação; como são apenas 5: escolhemos a com maior incidência, com menor incidência e a mediana.
+
+
+<br><br>
+#### Plotando os mapas com as Violações escolhidas: "Recpt Not Littr Free", "Unlicensd Cstr Dumps" e "No Permit Fixture"
+<br>
+```{r validacao phila, eval=FALSE}
+
+## Base Collections
+tbrecept <- filter(tbphila, violation_code == "107142")
+plotrecept <- ggplot(data = philatransform) + 
+  geom_sf(fill = "White") +
+  geom_point(data = tbrecept,
+             aes(x = lng,
+                 y = lat),
+             colour = 'Dark Red',
+             size = 1.75) +
+  ggtitle("Violacoes - Recpt Not Littr Free") + 
+  theme_light()
+
+## Base Recpt
+tbunlicensed <- filter(tbphila, violation_code == "116102")
+plotunlicensed <- ggplot(data = philatransform) + 
+  geom_sf(fill = "White") +
+  geom_point(data = tbunlicensed,
+             aes(x = lng,
+                 y = lat),
+             colour = 'Dark Blue',
+             size = 1.75) +
+  ggtitle("Violacoes - Unlicensd Cstr Dumps") + 
+  theme_light()
+
+## Base Unlicnsd
+tbfixture <- filter(tbphila, violation_code == "106111K")
+plotfixture <- ggplot(data = philatransform) + 
+  geom_sf(fill = "White") +
+  geom_point(data = tbfixture,
+             aes(x = lng,
+                 y = lat),
+             colour = 'Dark Green',
+             size = 1.75) +
+  ggtitle("Violacoes - No Permit Fixture") + 
+  theme_light()
+
+plotrecept
+plotunlicensed
+plotfixture
+
+plot_grid(
+  plotrecept, 
+  plotunlicensed, 
+  plotfixture,
+  labels="Plot das violacoes escolhidas", 
+  ncol = 3, 
+  nrow = 1)
+
+```
+
+<br><br>
+### **Insights**
+*Pode-se notar que a concentração de pontos está localizada, no caso das 3 violações selecionadas, na parte central de Filadélfia e na região Sudoeste da mesma. No caso da violação de Receipt, também existe uma alta concentração de pontos na região mais ao norte (40.05º latitude), bem como na região Sul (39.95º latitude). No demais, as 3 violações apresentam distribuições de pontos relativamente semelhantes.*
+
+
+
+<br><br>
+# **Questão 2 - Análise Exploratória**
+*Investigar os efeitos de 1ª e 2ª ordem das localizações das violações cometidas. Interprete todos os resultados apresentados. Discutam as possíveis diferenças observadas entre os edeitos estimados dos 3 cenários avliados, isto é, o comportamento da intensidade das violações parece ocorrer de formar similar para tosos os seus tipos para a cidade da Philadelphia ou padrões tendem a ser diferentes?*
+
+<br>
+## *Efeitos de 1ª Ordem*
+<br>
+```{r primeiraordem transformshape, eval=FALSE}
+#Transformando o CRS do shape
+shapeH_32718 = st_transform(shape_simp, 
+                            crs = 32718)
+
+```
+
+<br>
+```{r primeiraordem  owin, eval=FALSE}
+#Criando um objeto owin (observation window)
+shapeHO <- as.owin(shapeH_32718)
+
+```
+
+<br>
+#### O Shape se encontra no sistema de coordenadas EPSG:4326 - Foi convertido para o sistema WGS854.
+
+<br>
+```{r primeiraordem shape, eval=FALSE}
+#CRS do shapefile 
+base_4326 = st_as_sf(x = tbphila,
+                     coords = c("lng","lat"),
+                     crs = 4326)
+
+base_32718 = st_transform(x = base_4326,
+                          crs = 32718)
+```
+
+
+<br>
+### Extraindo bases transformadas por Violação
+```{r primeiraordem extracao bases, eval=FALSE}
+## Base Recept
+base_recept_32718 <- filter(base_32718, violation_code == "107142")
+
+## Base Unlicensed
+base_unlicensed_32718 <- filter(base_32718, violation_code == "116102")
+
+## Base Fixture
+base_fixture_32718 <- filter(base_32718, violation_code == "106111K")
+```
+
+<br>
+### Extraindo as coordenadas de cada área
+```{r primeiraordem coords, eval=FALSE}
+#Extraindo as coordenadas de cada base
+coordenadas_recept = st_coordinates(x = base_recept_32718)
+coordenadas_unlicensed = st_coordinates(x = base_unlicensed_32718)
+coordenadas_fixture = st_coordinates(x = base_fixture_32718)
+coordenadas_filadelfia = st_coordinates(x = base_32718)
+
+#Visualiando o objeto coordenadas
+head(coordenadas_recept)
+head(coordenadas_unlicensed)
+head(coordenadas_fixture)
+head(coordenadas_filadelfia)
+```
+
+
+<br>
+### Criando o padrão de pontos a ser plotado
+```{r primeiraordem padraopontos, message=FALSE, eval=FALSE}
+#Criando o padrao de pontos a ser plotado
+Receptppp = ppp(x = coordenadas_recept[,1],
+                 y = coordenadas_recept[,2],
+                 window = shapeHO)
+
+Unlicensedppp = ppp(x = coordenadas_unlicensed[,1],
+                y = coordenadas_unlicensed[,2],
+                window = shapeHO)
+
+Fixtureppp = ppp(x = coordenadas_fixture[,1],
+                    y = coordenadas_fixture[,2],
+                    window = shapeHO)
+
+Filadelfiappp = ppp(x = coordenadas_filadelfia[,1],
+                 y = coordenadas_filadelfia[,2],
+                 window = shapeHO)
+```
+
+<br>
+### Estimando o Raio 
+```{r primeiraordem raio, eval=FALSE}
+raio.est_recept = bw.diggle(Receptppp)
+raio.est_recept
+
+raio.est_unlicensed = bw.diggle(Unlicensedppp)
+raio.est_unlicensed
+
+raio.est_fixture = bw.diggle(Fixtureppp)
+raio.est_fixture
+
+raio.est_filadelfia = bw.diggle(Filadelfiappp)
+raio.est_filadelfia
+```
+
+
+<br>
+### Estimando a intensidade com Kernel Guassiano
+```{r primeiraordem kernelguaussiano, eval=FALSE}
+#Checando a unidade de medida
+st_crs(shapeH_32718)
+
+#Estimando a intensidade com kernel Gaussiano
+Recept_de.g = density.ppp(x = Receptppp, 
+                           sigma = raio.est_recept, 
+                           kernel ="gaussian")
+
+Unlicensed_de.g = density.ppp(x = Unlicensedppp, 
+                          sigma = raio.est_unlicensed, 
+                          kernel ="gaussian")
+
+Fixture_de.g = density.ppp(x = Fixtureppp, 
+                          sigma = raio.est_fixture, 
+                          kernel ="gaussian")
+```
+
+<br>
+
+###Plotando os dados e as funcoes intensidades estimadas pela função kernel Normal
+```{r primeiraordem kernelnormal, eval=FALSE} 
+
+par(mfrow=c(2,3))
+
+par(mar=c(2.5,2.5,1.5,.5))
+
+plot(Receptppp, 
+     pch=21, 
+     cex=0.5, 
+     bg="Dark Blue", main="Ocorrências de Recept", 
+     cex.main=0.5)
+
+plot(Unlicensedppp, 
+     pch=21, 
+     cex=0.5, 
+     bg="Dark Red", main="Ocorrências de Unlicensed", 
+     cex.main=0.5)
+
+plot(Fixtureppp, 
+     pch=21, 
+     cex=0.5, 
+     bg="Dark green", main="Ocorrências de Fixture", 
+     cex.main=0.5)
+
+plot(Recept_de.g, 
+     main="Função intensidade de Recept", 
+     cex.main=0.5)
+
+plot(Unlicensed_de.g, 
+     main="Função intensidade de Unlicensed", 
+     cex.main=0.5)
+
+plot(Fixture_de.g, 
+     main="Função intensidade de Fixture", 
+     cex.main=0.5)
+
+par(mfrow=c(1,1))
+```
+
+<br>
+### **Insights**
+
+*Ao se analisar o efeito de 1a ordem de cada tipo de violação analisada, em que a intensidade dos pontos espaciais, resultantes das densidades desses pontos, são levados em consideração. Ao se analisar os gráficos de intensidade obtidos, nota-se que os 3 tipos de violação ("Recept", Unlicensed"e "Fixture") não podem ser denominados como processos pontuais estacionários, uma vez que suas propriedades dependem de sua localização espacial, isso pode ser notado através da não homogenidade das intensidades de seus gráficos espaciais ao longo de todo seu território. De modo geral, temos um comportamento, relativamente, semelhante para o efeito de 1ª ordem de cada tipo de ocorrência, em que as regiões de alta intensidade/densidade de pontos espaciais estão concentrados na região Centro-Sudoeste da Filadélfia.*
+*Entretanto, nota-se que a ocorrência "Fixture" possui uma maior intensidade na região mencionada anteriormente, quando comparado com as ocorrências "Recept" e "Unlicensed".*
+
+
+## *Efeitos de 2ª Ordem*
+<br><br>
+### Estimando as funções G de cada ocorrência
+```{r primeiraordem funcoesg, eval=FALSE}
+Recept.G = Gest(Receptppp)
+Unlicensed.G = Gest(Unlicensedppp)
+Fixture.G = Gest(Fixtureppp)
+
+#Plotando as funcoes G de cada ocorrência
+par(mfrow = c(2,2))
+
+par(mar=c(4,2.5,1.5,.5))
+
+plot(Recept.G, 
+     main="Funcao G de Recept", 
+     xlab = "metro")
+
+plot(Unlicensed.G, 
+     main="Funcao G de Unlicensed", 
+     xlab = "metro")
+
+plot(Fixture.G, 
+     main="Funcao G de Fixture", 
+     xlab = "metro")
+par(mfrow = c(1,1))
+```
+
+<br><br>
+### **Insights**
+*Ao se analisar o efeito de 2a ordem de cada tipo de violação analisada, em que esse efeito fornece informações sobre a interação de eventos em pequena escala. Ao se analisar a função G de cada tipo de ocorrência, nota-se que os pontos das 3 ocorrências indicam uma tendência de agrupamento de pontos, uma vez que a curva G estimada se encontra acima da curva de aleatoriedade de pontos e apresenta um comportamento de crescimento contínuo ao longo do eixo X.*
+*Entretanto, para garantir que os pontos apresentem realmente uma tendência de agrupamento e sair do campo da intuição, deve-se realizar o teste de CSR, o qual é apresentado a seguir.*
+
+<br><br>
+### Realizando o teste de Clark-Evans para verificar agregacao espacial
+```{r primeiraordem clarkevans, eval=FALSE}
+Recept_clarkevans <- clarkevans.test(X = Receptppp, 
+                alternative = "clustered")
+Recept_clarkevans
+
+
+Unlicensed_clarkevans <- clarkevans.test(X = Unlicensedppp, 
+                                     alternative = "clustered")
+Unlicensed_clarkevans
+
+
+Fixture_clarkevans <- clarkevans.test(X = Fixtureppp, 
+                                     alternative = "clustered")
+Fixture_clarkevans
+
+```
+
+<br>
+### **Insights**
+*Ao se realizar o teste de Clar-Evans em conjunto com a adoção da premissa de que o nível de significância do teste seja de 5%, nota-se que para as 3 ocorrências a hipótese nula é rejeitada, uma vez que o p-valor do teste de Clark-Evans para cada tipo de ocorrência é menor que 5%. Logo, pode-se assumir que existe uma relação de agrupamento entre os pontos de cada ocorrência.Logo, o efeito de 2a ordem para cada tipo de ocorrência resulta no apontamento de agrupamento de pontos.*
+*Por fim, pode-se concluir que nos 3 tipos de ocorrência selecionados, o comportamentoda densidade de pontos ao longo da superfície geográfica e as interações entre esses pontos com seus respectivos pontos vizinhos apresentam um certo padrão, uma vez que os pontos nas 3 ocorrências selecionada encontram-se com elevada intensidade na região Centro-Sudoeste da Filadélfia, não apresentando características de processos estacionários ou homogêneos. Além disso, nas 3 ocorrências foram identificados padrões de agrupamento de pontos, os quais são evidenciados pela curva estimada da função G e pelo teste de Clark-Evans.*
+
+
+<br><br>
+# **Base Rio de Janeiro**
+<br>
+# **Questão 1**
+*Crie uma visualização apropriada para a taxa de lesão corporal dolosa por 100.000 habitantes em 2019 e para a taxa de roubo de rua por 100.000 habitantes no ano de 2019 considerando os municípios do Estado do Rio de Janeiro. Discuta a superfície de taxas estimadas.*
+
+<br>
+  -- Análise exploratória:
+  1.Mapa coroplético,
+  2.Definição de uma matriz de vizinhança W (queen, rook, distância),
+  3.Definição dos pesos de W,
+  4.Estimação da autocorrelação global e teste de hipóteses (I de Moran),
+  5.Estimação da autocorrelação local e teste de hipóteses (I local de Moran).
+  
+<br><br>
+### Importando o dataset: contem os dados dos municípios do Rio de Janeiro com a quantidade de incidentes ocorridos para Lesão Corporatal Dolosa (LCD) e Roubos de Rua (RR); O outro dataset, contem os dados de evolução popucional por Municípios por vários anos.
+<br>
+#### Visualização dos 5 primeiros registros de cada Dataset:
+  - Dataset Incidentes no Rio de Janeiro
+```{r importando rj, eval=FALSE}
+#Importando a base
+Base_municipio_mensal = read_csv2(file = "BaseMunicipioMensal.csv")
+head(Base_municipio_mensal)
+```
+
+<br>
+  - Dataset de Evolução Populacional por Municípios
+```{r importando evolucaopop, eval=FALSE}
+#Importando população ev mensal municipio
+Pop_ev_mensal_mun = read_csv2(file = "PopulacaoEvolucaoMensalMunic.csv")
+head(Pop_ev_mensal_mun)
+```
+
+<br>
+### União dos Datasets
+```{r uniao datasets, eval=FALSE}
+#Filtrando 2019
+Base_municipio_mensal = filter(Base_municipio_mensal, ano == "2019")
+
+#Acrescentando a variavel no shape
+base_join = left_join(x = Base_municipio_mensal, 
+                      y = Pop_ev_mensal_mun, 
+                      by = c("fmun_cod" = "cod_munic"))
+head(base_join)
+```
+
+<br>
+### Ajustando o Dataset para popualçao por 100 mil habitantes
+```{r ajuste rj habitantes, eval=FALSE}
+#Taxa de lesão corporal dolosa por 100.000 habitantes em 2019 (TLCD)
+#Taxa de roubo de rua por 100.000 habitantes no ano de 2019 (TRR)
+base_join$TLCD <-  base_join$lesao_corp_dolosa/base_join$pop_munic*100000
+
+base_join$TRR <- base_join$roubo_rua/base_join$pop_munic*100000
+
+#Transformando a variavel fmun_cod em character
+base_join$fmun_cod <- as.character(base_join$fmun_cod)
+```
+
+<br><br>
+### Importando shape
+```{r importando shape rj, eval=FALSE}
+Rio = read_sf("33MUE250GC_SIR.shp")
+class(Rio)
+Rio
+```
+
+<br>
+
+### Simplificando o numero de pontos no shape
+```{r simplificando shaperj, eval=FALSE}
+Rio_simp = ms_simplify(Rio,  
+                          keep_shapes = TRUE)
+```
+
+<br>
+### Plot do Shape Rio de Janeiro
+```{r plot rj, eval=FALSE}
+ggplot(Rio_simp) +
+  geom_sf(fill = "White")
+```
+
+<br> 
+#### Acrescentando a variavel no shape
+```{r rj shape, eval=FALSE}
+Rio_final = left_join(Rio_simp, base_join, by = c("CD_GEOCMU" = "fmun_cod"))
+head(Rio_final)
+```
+
+<br>
+
+#1) Mapa coroplético
+
+### Mapas - GGPLOT
+```{r mapas ggplot, eval=FALSE}
+# Mapa- TLCD
+  map_TLCD_ggplot <-   ggplot(data = Rio_final) +
+  geom_sf(aes(fill = TLCD)) +
+  scale_fill_gradient(name = "TLCD", 
+                      low = "White", 
+                      high = "Red") +
+  theme_light() +
+  theme(legend.title = element_text(size = 16),
+        legend.text = element_text(size = 10,
+                                   colour = "Red"))
+map_TLCD_ggplot
+# Mapa- TRR
+map_TRR_ggplot <- ggplot(data = Rio_final) +
+  geom_sf(aes(fill = TRR)) +
+  scale_fill_gradient(name = "TRR", 
+                      low = "White", 
+                      high = "Red") +
+  theme_light() +
+  theme(legend.title = element_text(size = 16),
+        legend.text = element_text(size = 10,
+                                   colour = "Red"))
+map_TRR_ggplot
+
+#Plotando os dois mapas em uma mesma figura
+grid.arrange(map_TLCD_ggplot,
+             map_TRR_ggplot,
+             ncol = 1,
+             nrow = 2)
+```
+<br>
+### Mapas - TMAP
+```{r mapstmap, eval=FALSE}
+#Colocando todos os graficos em uma mesma escala
+  tm_shape(shp = Rio_final) + 
+    tm_fill(col = c("TLCD","TRR"),
+            title = c("TAXA POR 100 MIL HABITANTES"),
+            palette = "Blues") +
+    tm_facets(nrow = 1,
+              free.scales = FALSE) +
+    tm_borders() +
+    tm_layout(panel.labels = c("TLCD","TRR"))
+```
+
+
+<br>
+### **INSIGHTS**
+*Podemos observar que a Taxa de lesão corporal dolosa (TLCD) compararada com a Taxa de roubo de rua (TRR) possui maior incidencia no estado do RJ-Dados da base de 2019 por 100 mil habitantes.*
+
+*TLCD possui maior dispersão ao longo do estado ao passo que que TRR está mais concentrado na região da capital e baixada fluminense*
+
+<br><br>
+# **Questão 2**
+*Verifique se existe dependência espacial para as duas taxas de interesse. Avalie diferentes critérios de vizinhança e diferentes pesos. Conclua usando um nível de significância de 5%.*
+
+<br><br>
+Matriz de proximidade espacial: Duas principais abordagem
+• Contiguidade
+• Distância
+
+<br>
+Contiguidade binária:
+• Critério rook (borda comum),
+• Critério bishop (vértice comum),
+• Critério queen (borda ou vértice comum).
+
+<br>
+
+
+### Critério de Contiguidade: 
+Definição da matriz de vizinhança (W): contiguidade (bishop, rook e queen ) ou distância (k-vizinhos mais próximos). 
+• W define quem é vizinho de quem e a intensidade (peso) dessa relação
+<br><br>
+
+### Criando a matriz de vizinhanca W baseda no criterio de contiguidade queen
+```{r matrixvizinhanca, eval=FALSE}
+W.queen = poly2nb(pl = Rio_final, 
+                    row.names = Rio_final$NM_MUNICIP, 
+                    queen = TRUE)
+  
+W.rook = poly2nb(pl = Rio_final, 
+                    row.names = Rio_final$NM_MUNICIP, 
+                    queen = FALSE)
+  
+summary(W.rook)
+```
+<br>
+### Definição dos pesos de W
+  - Queen
+```{r pesos queen, eval=FALSE}
+## Lista de vizinhanca espacial com pesos
+  recWQW <- nb2listw(neighbours = W.queen, 
+                     style="W") #outras opcoes: B, C, S e U
+  
+  recWQB <- nb2listw(neighbours = W.queen, 
+                     style="B") #outras opcoes: B, C, S e U
+```
+
+<br>
+
+  - Rook
+```{r pesos rook, eval=FALSE}
+  recWRW <- nb2listw(neighbours = W.rook, 
+                   style="W") #outras opcoes: B, C, S e U
+  
+  recWRB <- nb2listw(neighbours = W.rook, 
+                   style="B") #outras opcoes: B, C, S e U
+
+```
+
+<br>
+Indicadores de autocorrelação global:
+  • Índice I global de Moran,
+  • C de Gery,
+  • Getis e Ord’s G(d).
+Indicadores de autocorrelação local:
+  • Índice I local de Moran,
+
+<br><br>
+### **Indicadores de autocorrelação global**
+```{r corrglobal, eval=FALSE}
+#Calculando o indice de moran considerando uma estrutura de vizinhanca queen com padronizacao pelas linhas 
+  
+  #Para TLCD - Taxa de lesão corporal dolosa por 100.000 habitantes em 2019 
+  moran.test(x = Rio_final$TLCD,
+             listw = recWQW)
+  
+  #Para TRR - Taxa de roubo de rua por 100.000 habitantes no ano de 2019 
+  moran.test(x = Rio_final$TRR,
+             listw = recWQW)
+```
+
+
+<br>
+### Calculando o indice de moran considerando uma estrutura de vizinhanca queen com pesos iguais
+```{r moranqueen, eval=FALSE}
+#Para TLCD - Taxa de lesão corporal dolosa por 100.000 habitantes em 2019 
+moran.test(x = Rio_final$TLCD,
+           listw = recWQB)
+#Para TRR - Taxa de roubo de rua por 100.000 habitantes no ano de 2019 
+moran.test(x = Rio_final$TRR,
+           listw = recWQB)
+```
+
+<br>
+
+### Calculando o indice de moran considerando uma estrutura de vizinhanca Rook com padronizacao pelas linhas 
+```{r moranrook, eval=FALSE}
+#Para TLCD - Taxa de lesão corporal dolosa por 100.000 habitantes em 2019 
+moran.test(x = Rio_final$TLCD,
+           listw = recWRW)
+
+#Para TRR - Taxa de roubo de rua por 100.000 habitantes no ano de 2019 
+moran.test(x = Rio_final$TRR,
+           listw = recWRW)
+```
+
+
+<br>
+
+### Calculando o indice de moran considerando uma estrutura de vizinhanca Rook com pesos iguais
+```{r moranrook iguais, eval=FALSE}
+#Para TLCD - Taxa de lesão corporal dolosa por 100.000 habitantes em 2019 
+moran.test(x = Rio_final$TLCD,
+           listw = recWRB)
+#Para TRR - Taxa de roubo de rua por 100.000 habitantes no ano de 2019 
+moran.test(x = Rio_final$TRR,
+           listw = recWRB)
+```
+
+<br>
+### **Indicadores de autocorrelação local**
+Calculando o I local de Moran 
+```{r moranlocal, eval=FALSE}
+#Para TLCD
+moranlocREC_TLCD = localmoran(x = Rio_final$TLCD,
+                               listw = recWQW, 
+                               na.action=na.exclude,
+                               zero.policy=TRUE)
+
+moranlocREC_TLCD
+
+#Para TREE
+moranlocREC_TRR = localmoran(x = Rio_final$TRR,
+                              listw = recWQW, 
+                              na.action=na.exclude,
+                              zero.policy=TRUE)
+
+
+moranlocREC_TRR
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
