@@ -6,7 +6,7 @@ output: html_document
 ---
 
 ```{r setwd, echo=FALSE, include=FALSE}
-setwd("C:/Users/mayar/Desktop/Personnal/FGV/Estatistica_Espacial/Projeto_conclusao")
+setwd("")
 ```
 
 
@@ -32,18 +32,18 @@ Renato Hirata - A
   -- Base Filadelfia
 ```{r loadimage, echo=FALSE}
 library(imager)
-load.image("C:/Users/mayar/Desktop/Personnal/FGV/Estatistica_Espacial/Projeto_conclusao/Filadelpfia_dataset_description.png") %>% plot
+load.image("") %>% plot
 ```
 
 <br>
 -- Base Municipios Mensal
 ```{r loadimage, echo=FALSE}
-load.image("C:/Users/mayar/Desktop/Personnal/FGV/Estatistica_Espacial/Projeto_conclusao/LesoesRoubos_dataset_description.png") %>% plot
+load.image("") %>% plot
 ```
 <br>
   -- Base Evolução Populacional Mensal
 ```{r loadimage, echo=FALSE}
-load.image("C:/Users/mayar/Desktop/Personnal/FGV/Estatistica_Espacial/Projeto_conclusao/EvolucaoPop_dataset_description.png") %>% plot
+load.image("") %>% plot
 ```
 
 
